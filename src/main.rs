@@ -7,7 +7,7 @@ use std::process::{exit, Command};
 use std::str::FromStr;
 use thiserror::Error;
 
-const VERSION: &str = "0.2.0";
+const VERSION: &str = "0.3.0";
 
 #[derive(Error, Debug)]
 pub enum SvcError {
@@ -39,6 +39,12 @@ struct Service {
     path: String,
     #[serde(rename = "type")]
     service_type: ServiceType,
+    #[serde(default = "default_interpreter")]
+    interpreter: String,
+}
+
+fn default_interpreter() -> String {
+    "python".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -70,10 +76,11 @@ fn run_executable(path: &str) -> Result<(), SvcError> {
     Ok(())
 }
 
-fn run_util(path: &str) -> Result<(), SvcError> {
-    let status = Command::new("python") // TODO: support other interpreters
-        .arg(path)
-        .status()?;
+fn run_util(path: &str, interpreter: &String) -> Result<(), SvcError> {
+    let mut command = Command::new(interpreter);
+    command.arg(path);
+
+    let status = command.status()?;
 
     if status.success() {
         Ok(())
@@ -92,13 +99,13 @@ fn run_service(service: &Service) -> Result<(), SvcError> {
 
     match service.service_type {
         ServiceType::Executable => run_executable(&service.path),
-        ServiceType::Util => run_util(&service.path),
+        ServiceType::Util => run_util(&service.path, &service.interpreter),
     }
 }
 
 fn enable_service(service: &Service) -> Result<(), SvcError> {
     if get_status(service)?.is_start_up {
-        return Err(SvcError::ServiceIsEnabled)
+        return Err(SvcError::ServiceIsEnabled);
     }
 
     let path = &service.path;
@@ -143,7 +150,7 @@ struct ServiceStatus {
 }
 
 fn get_status(service: &Service) -> Result<ServiceStatus, SvcError> {
-    let mut pids: Vec<u64> = Vec::new();
+    let pids: Vec<u64>;
     let is_start_up: bool;
 
     {
@@ -155,13 +162,10 @@ fn get_status(service: &Service) -> Result<ServiceStatus, SvcError> {
 
         let stdout = String::from_utf8_lossy(&output.stdout);
 
-        let lines: Vec<&str> = stdout.lines().collect();
-
-        for (_, line) in lines.iter().enumerate() {
-            if let Ok(pid) = line.trim().parse::<u64>() {
-                pids.push(pid);
-            }
-        }
+        pids = stdout
+            .lines()
+            .filter_map(|line| line.trim().parse::<u64>().ok())
+            .collect();
     }
 
     {
@@ -178,7 +182,7 @@ fn get_status(service: &Service) -> Result<ServiceStatus, SvcError> {
         is_start_up = exit_code == Some(0);
     }
 
-    Ok(ServiceStatus{ pids, is_start_up })
+    Ok(ServiceStatus { pids, is_start_up })
 }
 
 fn print_status(service: &Service) -> Result<(), SvcError> {
@@ -187,16 +191,34 @@ fn print_status(service: &Service) -> Result<(), SvcError> {
     println!("Type: {}", service.service_type.to_string());
     println!("Path: {}", service.path);
 
-    let pid_str = status.pids.iter().map(|n| n.to_string()).collect::<Vec<String>>().join(", ");
-    println!("PID: {}", {
-        if status.pids.is_empty() {
-            "not running"
-        } else {
-            pid_str.as_str()
-        }
-    });
+    match service.service_type {
+        ServiceType::Executable => {
+            let pid_str = status
+                .pids
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<String>>()
+                .join(", ");
+            println!(
+                "PID: {}",
+                if status.pids.is_empty() {
+                    "not running"
+                } else {
+                    pid_str.as_str()
+                }
+            );
 
-    println!("Start up: {}", if status.is_start_up { "enabled" } else { "disabled" });
+            println!(
+                "Start-up: {}",
+                if status.is_start_up { "enabled" } else { "disabled" }
+            );
+        }
+
+        ServiceType::Util => {
+            println!("Interpreter: {}", service.interpreter)
+        }
+    }
+
     Ok(())
 }
 
@@ -231,7 +253,7 @@ fn kill_service(service: &Service) -> Result<(), SvcError> {
 }
 
 fn print_help() {
-    println!("SVC {VERSION} by EFL, MIT License\nhttps://github.com/EFLKumo/svc\n\nUsage: svc <command> <service_name> \n <command>: \t enable \n\t\t disable \n\t\t status \n\t\t kill");
+    println!("SVC {VERSION} by EFL, MIT License\nhttps://github.com/EFLKumo/svc\n\nUsage: svc <command> <service_name> \n <command>: \t run \n\t\t enable \n\t\t disable \n\t\t status \n\t\t kill");
 }
 
 fn main() -> Result<(), SvcError> {
