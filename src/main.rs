@@ -1,3 +1,4 @@
+use colored::Colorize;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fmt::Display;
@@ -7,7 +8,7 @@ use std::process::{exit, Command};
 use std::str::FromStr;
 use thiserror::Error;
 
-const VERSION: &str = "0.3.0";
+const VERSION: &str = "0.3.1";
 
 #[derive(Error, Debug)]
 pub enum SvcError {
@@ -72,7 +73,11 @@ fn run_executable(path: &str) -> Result<(), SvcError> {
     // Run at background
     Command::new(path).spawn()?;
 
-    println!("Executable at `{path}` started in the background.");
+    println!(
+        "Executable {} started in the background.",
+        path.cyan(),
+    );
+
     Ok(())
 }
 
@@ -87,7 +92,11 @@ fn run_util(path: &str, interpreter: &String) -> Result<(), SvcError> {
     } else {
         Err(SvcError::IoError(Error::new(
             ErrorKind::Other,
-            format!("Utility `{path}` failed to run with error: {status}",),
+            format!(
+                "Utility {} failed to run with error: {}",
+                path.cyan(),
+                status.to_string().red()
+            ),
         )))
     }
 }
@@ -123,6 +132,7 @@ fn enable_service(service: &Service) -> Result<(), SvcError> {
         .arg("/f")
         .status()?;
 
+    println!("Service {} enabled.", name.cyan());
     Ok(())
 }
 
@@ -141,6 +151,7 @@ fn disable_service(service: &Service) -> Result<(), SvcError> {
         .arg("/f")
         .status()?;
 
+    println!("Service {} disabled.", name.cyan());
     Ok(())
 }
 
@@ -157,7 +168,10 @@ fn get_status(service: &Service) -> Result<ServiceStatus, SvcError> {
         let path = &service.path;
 
         let output = Command::new("powershell")
-            .args(&["-Command", &format!("Get-WmiObject Win32_Process | Where-Object {{ $_.ExecutablePath -like '*{}*' }} | Select-Object -ExpandProperty ProcessId", path)])
+            .args(&[
+                "-Command",
+                &format!("Get-WmiObject Win32_Process | Where-Object {{ $_.ExecutablePath -like '*{}*' }} | Select-Object -ExpandProperty ProcessId", path)
+            ])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -187,9 +201,9 @@ fn get_status(service: &Service) -> Result<ServiceStatus, SvcError> {
 
 fn print_status(service: &Service) -> Result<(), SvcError> {
     let status = get_status(service)?;
-    println!("Name: {}", service.name);
-    println!("Type: {}", service.service_type.to_string());
-    println!("Path: {}", service.path);
+    println!("Name: {}", service.name.cyan());
+    println!("Type: {}", service.service_type.to_string().cyan());
+    println!("Path: {}", service.path.cyan());
 
     match service.service_type {
         ServiceType::Executable => {
@@ -202,20 +216,28 @@ fn print_status(service: &Service) -> Result<(), SvcError> {
             println!(
                 "PID: {}",
                 if status.pids.is_empty() {
-                    "not running"
+                    "not running".yellow()
                 } else {
-                    pid_str.as_str()
+                    pid_str.as_str().green()
                 }
             );
 
             println!(
                 "Start-up: {}",
-                if status.is_start_up { "enabled" } else { "disabled" }
+                if status.is_start_up {
+                    "enabled".green()
+                } else {
+                    "disabled".yellow()
+                }
             );
         }
 
         ServiceType::Util => {
-            println!("Interpreter: {}", service.interpreter)
+            println!(
+                "{}: {}",
+                "Interpreter".blue(),
+                service.interpreter.yellow()
+            )
         }
     }
 
@@ -249,6 +271,12 @@ fn kill_service(service: &Service) -> Result<(), SvcError> {
         .arg(pid.to_string())
         .output()?;
 
+    println!(
+        "Service {} with PID {} killed.",
+        service.name.cyan(),
+        pid.to_string().green(),
+    );
+
     Ok(())
 }
 
@@ -279,12 +307,15 @@ fn main() -> Result<(), SvcError> {
             "status" => print_status(service),
             "kill" => kill_service(service),
             _ => {
-                eprintln!("Invalid command `{}`", command);
+                eprintln!("Invalid command {}", command.yellow());
                 exit(1);
             }
         }
     } else {
-        eprintln!("Service `{service_name}` not found in the configuration.");
+        eprintln!(
+            "Service {} not found in the configuration.",
+            service_name.cyan(),
+        );
         exit(1);
     }
 }
