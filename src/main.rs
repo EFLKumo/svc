@@ -297,7 +297,7 @@ fn print_help() {
 }
 
 fn main() -> Result<(), SvcError> {
-    let config = load_config(&format!("{}\\services.yaml", std::env::current_dir().unwrap().to_str()))?;
+    let config = load_config(&format!("{}\\services.yaml", std::env::current_dir().unwrap().to_str().unwrap()))?;
 
     let args: Vec<String> = std::env::args().collect();
 
