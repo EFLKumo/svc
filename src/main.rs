@@ -4,10 +4,11 @@ use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
 use std::io::{Error, ErrorKind};
+use std::path::Path;
 use std::process::{exit, Command};
 use thiserror::Error;
 
-const VERSION: &str = "0.3.2";
+const VERSION: &str = "1.0.0";
 
 #[derive(Error, Debug)]
 pub enum SvcError {
@@ -41,10 +42,16 @@ struct Service {
     service_type: ServiceType,
     #[serde(default = "default_interpreter")]
     interpreter: String,
+    #[serde(default = "default_work_at")]
+    work_at: String,
 }
 
 fn default_interpreter() -> String {
     "python".to_string()
+}
+
+fn default_work_at() -> String {
+    "".to_string()
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,9 +75,14 @@ fn load_config(path: &str) -> Result<Vec<Service>, SvcError> {
     Ok(serde_yaml::from_str(&content)?)
 }
 
-fn run_executable(path: &str) -> Result<(), SvcError> {
+fn run_executable(path: &str, work_at: &str) -> Result<(), SvcError> {
+    let mut command = Command::new(path);
+    if !work_at.is_empty() {
+        command.current_dir(work_at);
+    }
+
     // Run at background
-    Command::new(path).spawn()?;
+    command.spawn()?;
 
     println!(
         "Executable {} started in the background.",
@@ -80,9 +92,12 @@ fn run_executable(path: &str) -> Result<(), SvcError> {
     Ok(())
 }
 
-fn run_util(path: &str, interpreter: &String) -> Result<(), SvcError> {
+fn run_util(path: &str, interpreter: &String, work_at: &str) -> Result<(), SvcError> {
     let mut command = Command::new(interpreter);
     command.arg(path);
+    if !work_at.is_empty() {
+        command.current_dir(work_at);
+    }
 
     let status = command.status()?;
 
@@ -102,12 +117,23 @@ fn run_util(path: &str, interpreter: &String) -> Result<(), SvcError> {
 
 fn run_service(service: &Service) -> Result<(), SvcError> {
     if !get_status(service)?.pids.is_empty() {
-        return Err(SvcError::ServiceIsRunning)
+        return Err(SvcError::ServiceIsRunning);
     }
 
+    let work_at = if service.work_at.is_empty() {
+        Path::new(&service.path)
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_str()
+            .unwrap()
+            .to_string()
+    } else {
+        service.work_at.clone()
+    };
+
     match service.service_type {
-        ServiceType::Executable => run_executable(&service.path),
-        ServiceType::Util => run_util(&service.path, &service.interpreter),
+        ServiceType::Executable => run_executable(&service.path, &work_at),
+        ServiceType::Util => run_util(&service.path, &service.interpreter, &work_at),
     }
 }
 
@@ -275,6 +301,30 @@ fn main() -> Result<(), SvcError> {
     let config = load_config("services.yaml")?;
 
     let args: Vec<String> = std::env::args().collect();
+
+    // svc run xxx at "C:\xxx\dir"
+    if args.len() == 5 && args[1] == "run" && args[3] == "at" {
+        let service_name = &args[2];
+        let work_at = &args[4];
+
+        let service_map: HashMap<String, Service> =
+            config.into_iter().map(|s| (s.name.clone(), s)).collect();
+
+        if let Some(service) = service_map.get(service_name) {
+            match service.service_type {
+                ServiceType::Executable => run_executable(&service.path, work_at),
+                ServiceType::Util => run_util(&service.path, &service.interpreter, work_at),
+            }?;
+            return Ok(());
+        } else {
+            eprintln!(
+                "Service {} not found in the configuration.",
+                service_name.cyan(),
+            );
+            exit(1);
+        }
+    }
+
     if args.len() != 3 {
         print_help();
         exit(1);
