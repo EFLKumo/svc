@@ -8,7 +8,7 @@ use std::process::{exit, Command};
 use std::str::FromStr;
 use thiserror::Error;
 
-const VERSION: &str = "0.3.1";
+const VERSION: &str = "0.3.2";
 
 #[derive(Error, Debug)]
 pub enum SvcError {
@@ -245,37 +245,25 @@ fn print_status(service: &Service) -> Result<(), SvcError> {
 }
 
 fn kill_service(service: &Service) -> Result<(), SvcError> {
-    if get_status(service)?.pids.is_empty() {
+    let pids = get_status(service)?.pids;
+
+    if pids.is_empty() {
         return Err(SvcError::ServiceIsNotRunning);
     }
 
-    let output = Command::new("wmic")
-        .arg("process")
-        .arg("where")
-        .arg(format!("ExecutablePath='{}'", service.path))
-        .arg("get")
-        .arg("ProcessId")
-        .output()?;
+    for pid in pids {
+        Command::new("taskkill")
+            .arg("/F")
+            .arg("/PID")
+            .arg(pid.to_string())
+            .output()?;
 
-    let output_str = String::from_utf8(output.stdout)?;
-    let pid_str = output_str
-        .lines()
-        .find(|line| line.trim().starts_with("ProcessId"))
-        .and_then(|line| line.split_whitespace().last())
-        .ok_or(SvcError::CannotReadPID)?;
-    let pid: u64 = u64::from_str(pid_str).map_err(|_| SvcError::FailedToParsePID)?;
-
-    Command::new("taskkill")
-        .arg("/F")
-        .arg("/PID")
-        .arg(pid.to_string())
-        .output()?;
-
-    println!(
-        "Service {} with PID {} killed.",
-        service.name.cyan(),
-        pid.to_string().green(),
-    );
+        println!(
+            "Service {} with PID {} killed.",
+            service.name.cyan(),
+            pid.to_string().green(),
+        );
+    }
 
     Ok(())
 }
