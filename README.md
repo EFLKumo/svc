@@ -14,10 +14,11 @@ A simple service & util manager for Windows.
   type: Executable
   path: D:\path\to\tool.exe
 
-# item with the type `util` will be invoked by python.exe
-- name: PyScript
+# item with the type `util` will be invoked by custom interpreter
+- name: js
   type: Util
-  path: D:\path\to\python\script.py
+  path: D:\path\to\my\script.js
+  interpreter: nodejs # default interpreter is "python"
 ```
 
 ## Usage
@@ -30,6 +31,8 @@ svc enable MyServer
 svc run MyServer
 
 # kill by:
+# (be careful that this command will kill all processes
+# that have the same executable path as "MyServer")
 svc kill MyServer
 
 # disable by:
@@ -37,7 +40,7 @@ svc disable MyServer
 
 # quick run your programs or scripts
 svc run MyTool
-svc run PyScript
+svc run js
 
 # check status
 svc status MyServer

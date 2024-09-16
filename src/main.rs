@@ -5,7 +5,6 @@ use std::fmt::Display;
 use std::fs;
 use std::io::{Error, ErrorKind};
 use std::process::{exit, Command};
-use std::str::FromStr;
 use thiserror::Error;
 
 const VERSION: &str = "0.3.2";
