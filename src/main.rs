@@ -8,7 +8,7 @@ use std::path::Path;
 use std::process::{exit, Command};
 use thiserror::Error;
 
-const VERSION: &str = "1.0.0";
+const VERSION: &str = "1.0.1";
 
 #[derive(Error, Debug)]
 pub enum SvcError {
@@ -70,7 +70,7 @@ impl Display for ServiceType {
     }
 }
 
-fn load_config(path: &str) -> Result<Vec<Service>, SvcError> {
+fn load_config(path: &String) -> Result<Vec<Service>, SvcError> {
     let content = fs::read_to_string(path)?;
     Ok(serde_yaml::from_str(&content)?)
 }
@@ -297,7 +297,7 @@ fn print_help() {
 }
 
 fn main() -> Result<(), SvcError> {
-    let config = load_config("services.yaml")?;
+    let config = load_config(&format!("{}\\services.yaml", std::env::current_dir().unwrap().to_str()))?;
 
     let args: Vec<String> = std::env::args().collect();
 
