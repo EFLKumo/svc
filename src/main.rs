@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::fs;
 use std::io::{Error, ErrorKind};
 use std::path::Path;
-use std::process::{exit, Command};
+use std::process::{exit, Command, Stdio};
 use thiserror::Error;
 
 const VERSION: &str = "1.0.1";
@@ -63,14 +63,14 @@ enum ServiceType {
 impl Display for ServiceType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let str = match self {
-            ServiceType::Executable => "Executable".to_string(),
-            ServiceType::Util => "Utility".to_string(),
+            ServiceType::Executable => "Executable",
+            ServiceType::Util => "Utility",
         };
         write!(f, "{}", str)
     }
 }
 
-fn load_config(path: &String) -> Result<Vec<Service>, SvcError> {
+fn load_config(path: &str) -> Result<Vec<Service>, SvcError> {
     let content = fs::read_to_string(path)?;
     Ok(serde_yaml::from_str(&content)?)
 }
@@ -92,7 +92,7 @@ fn run_executable(path: &str, work_at: &str) -> Result<(), SvcError> {
     Ok(())
 }
 
-fn run_util(path: &str, interpreter: &String, work_at: &str) -> Result<(), SvcError> {
+fn run_util(path: &str, interpreter: &str, work_at: &str) -> Result<(), SvcError> {
     let mut command = Command::new(interpreter);
     command.arg(path);
     if !work_at.is_empty() {
@@ -121,14 +121,12 @@ fn run_service(service: &Service) -> Result<(), SvcError> {
     }
 
     let work_at = if service.work_at.is_empty() {
-        Path::new(&service.path)
-            .parent()
-            .unwrap_or_else(|| Path::new("."))
-            .to_str()
-            .unwrap()
-            .to_string()
+        match Path::new(&service.path).parent() {
+            Some(parent) => parent.to_str().unwrap_or_else(|| "\\"),
+            None => ".",
+        }
     } else {
-        service.work_at.clone()
+        &*service.work_at
     };
 
     match service.service_type {
@@ -213,8 +211,8 @@ fn get_status(service: &Service) -> Result<ServiceStatus, SvcError> {
             .arg("\"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")
             .arg("/v")
             .arg(&service.name)
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
             .status()?
             .code();
 
@@ -232,20 +230,19 @@ fn print_status(service: &Service) -> Result<(), SvcError> {
 
     match service.service_type {
         ServiceType::Executable => {
-            let pid_str = status
-                .pids
-                .iter()
-                .map(|n| n.to_string())
-                .collect::<Vec<String>>()
-                .join(", ");
-            println!(
-                "PID: {}",
-                if status.pids.is_empty() {
-                    "not running".yellow()
-                } else {
-                    pid_str.as_str().green()
-                }
-            );
+            let pid_str = if status.pids.is_empty() {
+                "not running".yellow().to_string()
+            } else {
+                status
+                    .pids
+                    .iter()
+                    .map(|n| n.to_string())
+                    .collect::<Vec<String>>()
+                    .join(", ")
+                    .green()
+                    .to_string()
+            };
+            println!("PID: {}", pid_str);
 
             println!(
                 "Start-up: {}",
@@ -258,10 +255,7 @@ fn print_status(service: &Service) -> Result<(), SvcError> {
         }
 
         ServiceType::Util => {
-            println!(
-                "Interpreter: {}",
-                service.interpreter.cyan()
-            )
+            println!("Interpreter: {}", service.interpreter.cyan())
         }
     }
 
