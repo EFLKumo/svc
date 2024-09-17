@@ -10,7 +10,7 @@ use std::process::{exit, Command, Stdio};
 use thiserror::Error;
 use rayon::prelude::*; // For parallel iterators
 
-const VERSION: &str = "1.0.1";
+const VERSION: &str = "1.0.2";
 
 #[derive(Error, Debug)]
 pub enum SvcError {
