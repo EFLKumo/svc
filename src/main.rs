@@ -1,5 +1,6 @@
 use colored::Colorize;
 use serde::Deserialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs;
@@ -7,6 +8,7 @@ use std::io::{Error, ErrorKind};
 use std::path::Path;
 use std::process::{exit, Command, Stdio};
 use thiserror::Error;
+use rayon::prelude::*; // For parallel iterators
 
 const VERSION: &str = "1.0.1";
 
@@ -35,23 +37,23 @@ pub enum SvcError {
 
 // YAML config file structure, use serde for (de)serializing
 #[derive(Debug, Deserialize)]
-struct Service {
-    name: String,
-    path: String,
+struct Service<'a> {
+    name: Cow<'a, str>,
+    path: Cow<'a, str>,
     #[serde(rename = "type")]
     service_type: ServiceType,
     #[serde(default = "default_interpreter")]
-    interpreter: String,
+    interpreter: Cow<'a, str>,
     #[serde(default = "default_work_at")]
-    work_at: String,
+    work_at: Cow<'a, str>,
 }
 
-fn default_interpreter() -> String {
-    "python".to_string()
+fn default_interpreter() -> Cow<'static, str> {
+    Cow::Borrowed("python")
 }
 
-fn default_work_at() -> String {
-    "".to_string()
+fn default_work_at() -> Cow<'static, str> {
+    Cow::Borrowed("")
 }
 
 #[derive(Debug, Deserialize)]
@@ -81,14 +83,8 @@ fn run_executable(path: &str, work_at: &str) -> Result<(), SvcError> {
         command.current_dir(work_at);
     }
 
-    // Run at background
-    command.spawn()?;
-
-    println!(
-        "Executable {} started in the background.",
-        path.cyan(),
-    );
-
+    command.spawn()?; // Run in background
+    println!("Executable {} started in the background.", path.cyan());
     Ok(())
 }
 
@@ -100,7 +96,6 @@ fn run_util(path: &str, interpreter: &str, work_at: &str) -> Result<(), SvcError
     }
 
     let status = command.status()?;
-
     if status.success() {
         Ok(())
     } else {
@@ -121,17 +116,18 @@ fn run_service(service: &Service) -> Result<(), SvcError> {
     }
 
     let work_at = if service.work_at.is_empty() {
-        match Path::new(&service.path).parent() {
-            Some(parent) => parent.to_str().unwrap_or_else(|| "\\"),
-            None => ".",
-        }
+        Path::new(service.path.as_ref())
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_str()
+            .unwrap_or(".")
     } else {
         &*service.work_at
     };
 
     match service.service_type {
-        ServiceType::Executable => run_executable(&service.path, &work_at),
-        ServiceType::Util => run_util(&service.path, &service.interpreter, &work_at),
+        ServiceType::Executable => run_executable(&service.path, work_at),
+        ServiceType::Util => run_util(&service.path, &service.interpreter, work_at),
     }
 }
 
@@ -145,13 +141,13 @@ fn enable_service(service: &Service) -> Result<(), SvcError> {
 
     Command::new("reg")
         .arg("add")
-        .arg("\"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")
+        .arg(r#"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"#)
         .arg("/v")
-        .arg(name)
+        .arg(name.as_ref())
         .arg("/t")
         .arg("REG_SZ")
         .arg("/d")
-        .arg(format!("\"{path}\""))
+        .arg(path.as_ref())
         .arg("/f")
         .status()?;
 
@@ -168,9 +164,9 @@ fn disable_service(service: &Service) -> Result<(), SvcError> {
 
     Command::new("reg")
         .arg("delete")
-        .arg("\"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")
+        .arg(r#"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"#)
         .arg("/v")
-        .arg(name)
+        .arg(name.as_ref())
         .arg("/f")
         .status()?;
 
@@ -184,40 +180,37 @@ struct ServiceStatus {
 }
 
 fn get_status(service: &Service) -> Result<ServiceStatus, SvcError> {
-    let pids: Vec<u64>;
-    let is_start_up: bool;
-
-    {
-        let path = &service.path;
-
+    let pids: Vec<u64> = {
         let output = Command::new("powershell")
             .args(&[
                 "-Command",
-                &format!("Get-WmiObject Win32_Process | Where-Object {{ $_.ExecutablePath -like '*{}*' }} | Select-Object -ExpandProperty ProcessId", path)
+                &format!(
+                    r#"Get-WmiObject Win32_Process | Where-Object {{ $_.ExecutablePath -like '*{}*' }} | Select-Object -ExpandProperty ProcessId"#,
+                    service.path
+                ),
             ])
             .output()?;
 
         let stdout = String::from_utf8_lossy(&output.stdout);
-
-        pids = stdout
+        stdout
             .lines()
             .filter_map(|line| line.trim().parse::<u64>().ok())
-            .collect();
-    }
+            .collect()
+    };
 
-    {
+    let is_start_up = {
         let exit_code = Command::new("reg")
             .arg("query")
-            .arg("\"HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Run")
+            .arg(r#"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\Run"#)
             .arg("/v")
-            .arg(&service.name)
+            .arg(service.name.as_ref())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
             .status()?
             .code();
 
-        is_start_up = exit_code == Some(0);
-    }
+        exit_code == Some(0)
+    };
 
     Ok(ServiceStatus { pids, is_start_up })
 }
@@ -233,17 +226,9 @@ fn print_status(service: &Service) -> Result<(), SvcError> {
             let pid_str = if status.pids.is_empty() {
                 "not running".yellow().to_string()
             } else {
-                status
-                    .pids
-                    .iter()
-                    .map(|n| n.to_string())
-                    .collect::<Vec<String>>()
-                    .join(", ")
-                    .green()
-                    .to_string()
+                status.pids.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ").green().to_string()
             };
             println!("PID: {}", pid_str);
-
             println!(
                 "Start-up: {}",
                 if status.is_start_up {
@@ -253,9 +238,8 @@ fn print_status(service: &Service) -> Result<(), SvcError> {
                 }
             );
         }
-
         ServiceType::Util => {
-            println!("Interpreter: {}", service.interpreter.cyan())
+            println!("Interpreter: {}", service.interpreter.cyan());
         }
     }
 
@@ -269,49 +253,54 @@ fn kill_service(service: &Service) -> Result<(), SvcError> {
         return Err(SvcError::ServiceIsNotRunning);
     }
 
-    for pid in pids {
-        Command::new("taskkill")
+    // Parallelize killing of PIDs
+    pids.par_iter().for_each(|&pid| {
+        let _ = Command::new("taskkill")
             .arg("/F")
             .arg("/PID")
             .arg(pid.to_string())
-            .output()?;
+            .output();
 
         println!(
             "Service {} with PID {} killed.",
             service.name.cyan(),
-            pid.to_string().green(),
+            pid.to_string().green()
         );
-    }
+    });
 
     Ok(())
 }
 
 fn print_help() {
-    println!("SVC {VERSION} by EFL, MIT License\nhttps://github.com/EFLKumo/svc\n\nUsage: svc <command> <service_name> \n <command>: \t run \n\t\t enable \n\t\t disable \n\t\t status \n\t\t kill");
+    println!(
+        "SVC {VERSION} by EFL, MIT License\nhttps://github.com/EFLKumo/svc\n\nUsage: svc <command> <service_name>\n\
+        <command>: \t run \n\t\t enable \n\t\t disable \n\t\t status \n\t\t kill"
+    );
 }
 
 fn main() -> Result<(), SvcError> {
-    let config_path = format!("{}\\services.yaml", std::env::current_exe()?.parent().unwrap().to_str().unwrap());
+    let config_path = format!(
+        "{}\\services.yaml",
+        std::env::current_exe()?.parent().unwrap().to_str().unwrap()
+    );
     let config = load_config(&config_path)?;
 
     let args: Vec<String> = std::env::args().collect();
 
-    // svc run xxx at "C:\xxx\dir"
     if args.len() == 5 && args[1] == "run" && args[3] == "at" {
         let service_name = &args[2];
         let work_at = &args[4];
 
-        let service_map: HashMap<String, Service> =
-            config.into_iter().map(|s| (s.name.clone(), s)).collect();
+        let service_map: HashMap<&str, &Service> = config.iter().map(|s| (&*s.name, s)).collect();
 
-        if let Some(service) = service_map.get(service_name) {
+        if let Some(service) = service_map.get(service_name.as_str()) {
             match service.service_type {
                 ServiceType::Executable => run_executable(&service.path, work_at),
                 ServiceType::Util => run_util(&service.path, &service.interpreter, work_at),
             }?;
             return Ok(());
         } else {
-            eprintln!(
+            println!(
                 "Service {} not found in the configuration.",
                 service_name.cyan(),
             );
@@ -327,10 +316,9 @@ fn main() -> Result<(), SvcError> {
     let command = &args[1];
     let service_name = &args[2];
 
-    let service_map: HashMap<String, Service> =
-        config.into_iter().map(|s| (s.name.clone(), s)).collect();
+    let service_map: HashMap<&str, &Service> = config.iter().map(|s| (&*s.name, s)).collect();
 
-    if let Some(service) = service_map.get(service_name) {
+    if let Some(service) = service_map.get(service_name.as_str()) {
         match command.as_str() {
             "run" => run_service(service),
             "enable" => enable_service(service),
@@ -338,12 +326,12 @@ fn main() -> Result<(), SvcError> {
             "status" => print_status(service),
             "kill" => kill_service(service),
             _ => {
-                eprintln!("Invalid command {}", command.yellow());
+                println!("Invalid command {}", command.yellow());
                 exit(1);
             }
         }
     } else {
-        eprintln!(
+        println!(
             "Service {} not found in the configuration.",
             service_name.cyan(),
         );
