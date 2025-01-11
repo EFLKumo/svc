@@ -9,7 +9,7 @@
   "architecture": {
     "64bit": {
       "url": "https://github.com/EFLKumo/svc/releases/download/1.0.3/svc.zip",
-      "hash": "8C33F33F1864AB6D1339D42011ADE0B433EC3956D951045D1FBC48F6D61882F3",
+      "hash": "c7cb41142286beb750b5a11ec991903e13809ecb1de6a75a82fe34c1a02b8801",
       "bin": [
         [
           "svc.exe", "svc"
