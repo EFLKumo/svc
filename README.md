@@ -1,5 +1,11 @@
 # svc
 A simple service & util manager for Windows.
+## Install
+Go to release page and extract to anywhere.
+Or use scoop:
+```shell
+scoop install https://cdn.jsdelivr.net/gh/EFLKumo/svc@main/svc-scoop.json
+```
 
 ## Configuration
 ```yaml
@@ -27,6 +33,9 @@ A simple service & util manager for Windows.
 
 ## Usage
 ```shell
+# show configuration
+svc config
+
 # add start-up task for Executable
 svc enable MyServer
 
