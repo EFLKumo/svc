@@ -10,7 +10,7 @@ use std::process::{exit, Command, Stdio};
 use thiserror::Error;
 use rayon::prelude::*; // For parallel iterators
 
-const VERSION: &str = "1.0.2";
+const VERSION: &str = "1.0.3";
 
 #[derive(Error, Debug)]
 pub enum SvcError {
@@ -274,7 +274,7 @@ fn kill_service(service: &Service) -> Result<(), SvcError> {
 fn print_help() {
     println!(
         "SVC {VERSION} by EFL, MIT License\nhttps://github.com/EFLKumo/svc\n\nUsage: svc <command> <service_name>\n\
-        <command>: \t run \n\t\t enable \n\t\t disable \n\t\t status \n\t\t kill"
+        <command>: \t run \n\t\t enable \n\t\t disable \n\t\t status \n\t\t kill \n\t\t config"
     );
 }
 
@@ -306,6 +306,11 @@ fn main() -> Result<(), SvcError> {
             );
             exit(1);
         }
+    }
+
+    if args.len() == 2 && args[1] == "config" {
+        println!("{:#?}", config);
+        exit(0);
     }
 
     if args.len() != 3 {

@@ -1,0 +1,33 @@
+{
+  "version": "1.0.3",
+  "description": "A simple service & util manager for Windows.",
+  "homepage": "https://github.com/EFLKumo/svc",
+  "license": {
+    "identifier": "GPL-3.0-only",
+    "url": "https://github.com/EFLKumo/svc/raw/refs/heads/main/LICENSE"
+  },
+  "architecture": {
+    "64bit": {
+      "url": "https://github.com/EFLKumo/svc/releases/download/1.0.3/svc.zip",
+      "hash": "8C33F33F1864AB6D1339D42011ADE0B433EC3956D951045D1FBC48F6D61882F3",
+      "bin": [
+        [
+          "svc.exe", "svc"
+        ]
+      ]
+    }
+  },
+  "persist": [
+    "services.yaml"
+  ],
+  "checkver": {
+    "github": "https://github.com/EFLKumo/svc"
+  },
+  "autoupdate": {
+    "architecture": {
+      "64bit": {
+        "url": "https://github.com/EFLKumo/svc/releases/download/$version/svc.zip"
+      }
+    }
+  }
+}
