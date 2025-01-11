@@ -4,7 +4,7 @@ A simple service & util manager for Windows.
 Go to release page and extract to anywhere.
 Or use scoop:
 ```shell
-scoop install https://cdn.jsdelivr.net/gh/EFLKumo/svc@main/svc-scoop.json
+scoop install https://cdn.jsdelivr.net/gh/EFLKumo/svc@main/scoop/svc.json
 ```
 
 ## Configuration
